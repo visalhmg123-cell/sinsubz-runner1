@@ -1,0 +1,41 @@
+# Translates the titles in auto-queue.json in the LAST HOUR before the Gemini quota resets (midnight Pacific time =
+# 13:30 in Sri Lanka in winter, 12:30 in summer), using the quota that would be lost anyway. It stops at the reset so
+# visitors get the fresh quota. Results show up under "Ready Sinhala subtitles" on the home page.
+# Needs the repository secret ADMIN_KEY (same value as ADMIN_KEY in Vercel). Optional secret SITE_URL.
+# Run it by hand any time: Actions -> Auto translate -> Run workflow.
+name: Auto translate
+
+on:
+  # No `schedule:` here on purpose: GitHub started scheduled runs hours late (and they failed when apt had a network
+  # hiccup). The Vercel cron (vercel.json -> /api/stats?cron=runner) starts this workflow with workflow_dispatch instead.
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "cron = started by the Vercel cron (keeps the last-hour check); manual = ignore it"
+        default: manual
+
+concurrency:
+  group: auto-translate
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install headless Chromium
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.49.1
+          # apt/CDN hiccups happen: try up to 4 times
+          for i in 1 2 3 4; do npx playwright install --with-deps chromium && break; echo "install failed, retry $i"; sleep 20; done
+          npx playwright install chromium
+      - name: Translate the queue
+        env:
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          SITE_URL: ${{ secrets.SITE_URL }}
+          FROM_CRON: ${{ inputs.source == 'cron' && '1' || '' }}
+        run: node scripts/auto-translate.js
