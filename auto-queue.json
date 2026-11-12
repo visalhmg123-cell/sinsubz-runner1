@@ -1,0 +1,6 @@
+{
+  "note": "Auto-translate runner settings (scripts/auto-translate.js). 'titles' = optional hand-picked list that is worked FIRST (imdb id, title, year, poster, type tv|movie, season, episodes). The series list itself (up to 10 new series without a Sinhala subtitle added every Sunday: demand, new releases, random good ones) lives in the database and is worked in order, one series after another, until all its episodes are done. See api/_autoq.js.",
+  "max_per_run": 200,
+  "weekly_series": 10,
+  "titles": []
+}
