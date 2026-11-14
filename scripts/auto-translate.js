@@ -195,7 +195,7 @@ async function refillIfDue(weekly, meta, emptyList) {
     // 1) hand-picked titles first, then 2) the series list in order (first series completely, then the next)
     let all = wanted(queue);
     ((aq.json && aq.json.list) || []).forEach(sr => {
-        (sr.todo || []).forEach(p => all.push({ t: { imdb: sr.imdb, title: sr.title, year: sr.year, poster: sr.poster, type: "tv" }, season: p[0], episode: p[1], queued: true }));
+        (sr.todo || []).forEach(p => all.push({ t: { imdb: sr.imdb, title: sr.title, year: sr.year, poster: sr.poster, type: sr.type === "movie" ? "movie" : "tv" }, season: p[0], episode: p[1], queued: true }));
     });
     if (process.env.LIST_ONLY === "1") { log("LIST_ONLY: would work on " + [...new Set(all.map(j => j.t.title))].join(", ")); return; }
     const todo = all.filter(j => !have.has(j.t.imdb + "|" + j.season + "|" + j.episode));
