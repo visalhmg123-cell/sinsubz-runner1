@@ -135,8 +135,8 @@ async function hasSinhala(c) {
 
 // Sunday (or the very first run): add up to <weekly> new series without a Sinhala subtitle to the list
 async function refillIfDue(weekly, meta, emptyList) {
-    const due = process.env.REFILL === "1" || emptyList || !meta.lastRefill || (sriLankaWeekday() === "Sun" && Date.now() - meta.lastRefill > 5 * 86400000);
-    if (!due) { log("Weekly refill: not due (next Sunday)."); return false; }
+    const due = process.env.REFILL === "1" || emptyList || !meta.lastRefill || (sriLankaWeekday() === "Sun" && Date.now() - meta.lastRefill > 20 * 3600000);
+    if (!due) { log("Weekly refill: not due (it runs on Sunday, at most once a day)."); return false; }
     log("Weekly refill: looking for up to " + weekly + " series without a Sinhala subtitle ...");
     const cand = await api("/api/stats?autoq=candidates", { headers: AK() });
     const items = (cand.json && cand.json.items) || [];
