@@ -218,6 +218,7 @@ async function refillIfDue(weekly, meta, emptyList) {
     const noSub = {};      // series -> consecutive episodes without an English subtitle (= not aired / not on SubDL yet)
     const closed = new Set();   // series given up for now (7 days)
     let quotaWaits = 0, noSubAll = 0;
+    const noSubSeries = new Set();      // different series that had no English subtitle since the last success
     const subdlWaits = {}, dlGiveUp = {}, outsideRetries = {};
     stop: for (let i = 0; i < todo.length; i++) {
         const job = todo[i];
@@ -235,9 +236,9 @@ async function refillIfDue(weekly, meta, emptyList) {
             if (out.retry) { throw new Error("SUBDL_RETRY " + out.retry); }
             if (out.skip) {
                 log("  skipped: " + out.skip);
-                if (job.queued && /no English subtitle/.test(out.skip) && ++noSubAll >= 6) {
-                    // many different episodes in a row without an English subtitle: SubDL is most likely failing, not the series
-                    log("6 episodes in a row without an English subtitle: SubDL looks unavailable, stopping WITHOUT marking them.");
+                if (job.queued && /no English subtitle/.test(out.skip) && (noSubSeries.add(id), ++noSubAll) >= 12 && noSubSeries.size >= 4) {
+                    // many episodes of many DIFFERENT series in a row without an English subtitle: SubDL is most likely failing, not the series
+                    log(noSubAll + " episodes of " + noSubSeries.size + " different series in a row without an English subtitle: SubDL looks unavailable, stopping WITHOUT marking them.");
                     break stop;
                 }
                 if (job.queued) {
@@ -252,7 +253,7 @@ async function refillIfDue(weekly, meta, emptyList) {
                 }
                 continue;
             }
-            noSub[id] = 0; noSubAll = 0;
+            noSub[id] = 0; noSubAll = 0; noSubSeries.clear();
             const put = await post("/api/stats?ready=put", { imdb: id, title: job.t.title, year: job.t.year, poster: job.t.poster, type: job.t.type === "tv" ? "tv" : "movie", season: job.season, episode: job.episode, filename: out.filename, srt: out.srt, count: out.count, release: out.release });
             if (!put.ok) { throw new Error("store failed " + put.status + " " + put.text.slice(0, 120)); }
             log("  done: " + out.count + " lines");
