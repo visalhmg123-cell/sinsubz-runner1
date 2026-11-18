@@ -129,7 +129,7 @@ function sriLankaWeekday() {
 // does one of the Sinhala sites already have a subtitle for this series?  (null = could not check)
 async function hasSinhala(c) {
     try {
-        const r = await api("/api/sinhala-search?title=" + encodeURIComponent(c.title) + "&year=" + encodeURIComponent(c.year || "") + "&type=series&_r=" + Date.now(), { headers: AK() });
+        const r = await api("/api/sinhala-search?title=" + encodeURIComponent(c.title) + "&year=" + encodeURIComponent(c.year || "") + "&type=" + (c.type === "movie" ? "movie" : "series") + "&_r=" + Date.now(), { headers: AK() });
         if (!r.ok || !r.json) { return null; }
         return !!r.json.found;
     } catch (e) { return null; }
@@ -174,8 +174,9 @@ async function refillFilmsIfDue(n, meta) {
         let found = null;
         try { const r = await api("/api/sinhala-search?title=" + encodeURIComponent(c.title) + "&year=" + encodeURIComponent(c.year || "") + "&type=movie&_r=" + Date.now(), { headers: AK() }); if (r.ok && r.json) { found = !!r.json.found; } } catch (e) { /* unknown */ }
         if (found === true) { log("  skip " + c.title + ": already has a Sinhala subtitle"); continue; }
+        if (found === null) { log("  skip " + c.title + ": could not check the Sinhala sites"); continue; }
         picked.push(c);
-        log("  + " + c.title + " (" + c.year + ")" + (found === null ? " [could not check the Sinhala sites]" : ""));
+        log("  + " + c.title + " (" + c.year + ")");
     }
     if (picked.length) { const r = await post("/api/stats?autoq=add", { items: picked }); log("  added " + ((r.json && r.json.added) || 0) + " films, list size " + ((r.json && r.json.size) || "?")); }
     else { log("  no new film found today."); }
@@ -223,7 +224,7 @@ async function refillFilmsIfDue(n, meta) {
     // 1) hand-picked titles first, then 2) the series list in order (first series completely, then the next)
     let all = wanted(queue);
     ((aq.json && aq.json.list) || []).forEach(sr => {
-        (sr.todo || []).forEach(p => all.push({ t: { imdb: sr.imdb, title: sr.title, year: sr.year, poster: sr.poster, type: sr.type === "movie" ? "movie" : "tv" }, season: p[0], episode: p[1], queued: true }));
+        (sr.todo || []).forEach(p => all.push({ t: { imdb: sr.imdb, title: sr.title, year: sr.year, poster: sr.poster, src: sr.src, type: sr.type === "movie" ? "movie" : "tv" }, season: p[0], episode: p[1], queued: true }));
     });
     // the daily films go before the long series list, so the 5 films of the day really get done
     { const first = all.filter(j => !j.queued || j.t.type === "movie"), rest = all.filter(j => j.queued && j.t.type !== "movie"); all = first.concat(rest); }
@@ -248,6 +249,7 @@ async function refillFilmsIfDue(n, meta) {
 
     let done = 0, failsInRow = 0;
     const noSub = {};      // series -> consecutive episodes without an English subtitle (= not aired / not on SubDL yet)
+    const rechecked = new Set();   // titles already re-checked on the Sinhala sites in this run
     const closed = new Set();   // series given up for now (7 days)
     let quotaWaits = 0, noSubAll = 0;
     const noSubSeries = new Set();      // different series that had no English subtitle since the last success
@@ -256,6 +258,12 @@ async function refillFilmsIfDue(n, meta) {
         const job = todo[i];
         const id = job.t.imdb;
         if (closed.has(id)) { continue; }
+        // an auto-picked title may have got a Sinhala subtitle somewhere else since it was added: look again before spending quota
+        if (job.queued && job.t.src !== "manual" && !rechecked.has(id)) {
+            rechecked.add(id);
+            const f = await hasSinhala({ title: job.t.title, year: job.t.year, type: job.t.type });
+            if (f === true) { log("Skip " + job.t.title + ": a Sinhala subtitle exists on another site now."); closed.add(id); continue; }
+        }
         if (done >= maxRun) { log("Reached the per-run limit."); break; }
         if (Date.now() - started > MAX_MS) { log("Time limit reached (" + Math.round(MAX_MS / 60000) + " minutes): stopping."); break; }
         if (await stopRequested()) { log("Stopped from the admin panel."); break; }
