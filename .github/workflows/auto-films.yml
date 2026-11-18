@@ -1,0 +1,32 @@
+name: Auto films (daily)
+
+# Translates the day's random films (see scripts/auto-translate.js, FILMS_ONLY=1).
+# 18:30 UTC = 00:00 midnight in Sri Lanka. Change the cron line to move it (cron is in UTC).
+on:
+  schedule:
+    - cron: "30 18 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: auto-translate-run
+  cancel-in-progress: false
+
+jobs:
+  films:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Translate the films
+        env:
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          FILMS_ONLY: "1"
+          MAX_MINUTES: "90"
+        run: node scripts/auto-translate.js
