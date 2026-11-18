@@ -164,7 +164,9 @@ async function refillIfDue(weekly, meta, emptyList) {
 // Every day (once per Sri Lanka day): add up to <n> random films WITHOUT a Sinhala subtitle to the list
 async function refillFilmsIfDue(n, meta) {
     const day = d => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Colombo" }).format(new Date(d));
-    if (n <= 0 || (process.env.FILM_REFILL !== "1" && meta.lastFilmRefill && day(meta.lastFilmRefill) === day(Date.now()))) { log("Daily films: already added today."); return false; }
+    // a run started by hand (admin "Run films now" or the GitHub button) always picks new films; the scheduled one only once a day
+    const byHand = process.env.GITHUB_EVENT_NAME === "workflow_dispatch";
+    if (n <= 0 || (process.env.FILM_REFILL !== "1" && !byHand && meta.lastFilmRefill && day(meta.lastFilmRefill) === day(Date.now()))) { log("Daily films: already added today."); return false; }
     log("Daily films: looking for up to " + n + " random films without a Sinhala subtitle ...");
     const cand = await api("/api/stats?autoq=candidates&kind=movie", { headers: AK() });
     if (!cand.ok) { log("  film candidates failed: " + cand.status + " " + cand.text.slice(0, 120)); return false; }
