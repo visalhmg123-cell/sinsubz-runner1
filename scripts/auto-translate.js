@@ -171,15 +171,29 @@ async function refillFilmsIfDue(n, meta) {
     const cand = await api("/api/stats?autoq=candidates&kind=movie", { headers: AK() });
     if (!cand.ok) { log("  film candidates failed: " + cand.status + " " + cand.text.slice(0, 120)); return false; }
     const picked = [];
-    for (const c of ((cand.json && cand.json.items) || [])) {
-        if (picked.length >= n) { break; }
+    // 4 recent releases + 1 older film (the server tags each candidate "new" / "old"); if one group runs short the other fills up
+    const all = ((cand.json && cand.json.items) || []);
+    const wantOld = n >= 2 ? 1 : 0, wantNew = n - wantOld;
+    const noSinhala = async (c) => {
         let found = null;
         try { const r = await api("/api/sinhala-search?title=" + encodeURIComponent(c.title) + "&year=" + encodeURIComponent(c.year || "") + "&type=movie&_r=" + Date.now(), { headers: AK() }); if (r.ok && r.json) { found = !!r.json.found; } } catch (e) { /* unknown */ }
-        if (found === true) { log("  skip " + c.title + ": already has a Sinhala subtitle"); continue; }
-        if (found === null) { log("  skip " + c.title + ": could not check the Sinhala sites"); continue; }
-        picked.push(c);
-        log("  + " + c.title + " (" + c.year + ")");
-    }
+        if (found === true) { log("  skip " + c.title + " (" + c.year + "): already has a Sinhala subtitle"); return false; }
+        if (found === null) { log("  skip " + c.title + ": could not check the Sinhala sites"); return false; }
+        return true;
+    };
+    const take = async (pool, max, label) => {
+        let got = 0;
+        for (const c of pool) {
+            if (got >= max || picked.length >= n) { break; }
+            if (picked.some(x => x.imdb === c.imdb) || c._tried) { continue; }
+            c._tried = true;
+            if (await noSinhala(c)) { picked.push(c); got++; log("  + " + c.title + " (" + c.year + ") [" + label + "]"); }
+        }
+    };
+    await take(all.filter(c => c.group === "new"), wantNew, "new release");
+    await take(all.filter(c => c.group !== "new"), wantOld, "older film");
+    if (picked.length < n) { await take(all.filter(c => c.group === "new"), n, "new release"); }       // one group ran short: fill up
+    if (picked.length < n) { await take(all.filter(c => c.group !== "new"), n, "older film"); }
     if (picked.length) { const r = await post("/api/stats?autoq=add", { items: picked }); log("  added " + ((r.json && r.json.added) || 0) + " films, list size " + ((r.json && r.json.size) || "?")); }
     else { log("  no new film found today."); }
     await post("/api/stats?autoq=meta", { lastFilmRefill: true });
