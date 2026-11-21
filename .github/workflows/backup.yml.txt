@@ -23,6 +23,15 @@ jobs:
         env:
           ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
         run: node scripts/backup.js
+      - name: Save a copy of the website code
+        env:
+          CODE_TOKEN: ${{ secrets.CODE_TOKEN }}
+        run: |
+          mkdir -p backups
+          curl -fsSL ${CODE_TOKEN:+-H "Authorization: Bearer $CODE_TOKEN"} \
+            -o "backups/code-$(date -u +%F).tar.gz" \
+            https://api.github.com/repos/Imvisal/Subtittle-translator/tarball/main
+          ls backups/code-*.tar.gz | sort | head -n -4 | xargs -r rm -f
       - name: Commit the backup
         run: |
           git config user.name "sinsubz-backup"
