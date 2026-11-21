@@ -2,6 +2,7 @@
    Env: ADMIN_KEY (required)   SITE_URL (default https://sinsubs.site) */
 "use strict";
 const fs = require("fs");
+const zlib = require("zlib");
 const SITE = (process.env.SITE_URL || "https://sinsubs.site").replace(/\/$/, "");
 const H = { "x-admin-key": process.env.ADMIN_KEY || "", "Content-Type": "application/json" };
 async function call(path, opt) {
@@ -27,9 +28,9 @@ async function call(path, opt) {
     }
     if (items.length < 10) { console.error("too few items, not saving"); process.exit(1); }
     fs.mkdirSync("backups", { recursive: true });
-    const name = "backups/sinsubz-" + new Date().toISOString().slice(0, 10) + ".json";
-    fs.writeFileSync(name, JSON.stringify({ app: "sinsubz", t: Date.now(), items }));
+    const name = "backups/sinsubz-" + new Date().toISOString().slice(0, 10) + ".json.gz";   // gzip: the plain file passes GitHub's 100 MB limit
+    fs.writeFileSync(name, zlib.gzipSync(JSON.stringify({ app: "sinsubz", t: Date.now(), items }), { level: 9 }));
     // keep only the newest 8 files
-    fs.readdirSync("backups").filter(f => /^sinsubz-.*\.json$/.test(f)).sort().slice(0, -8).forEach(f => fs.unlinkSync("backups/" + f));
+    fs.readdirSync("backups").filter(f => /^sinsubz-.*\.json(\.gz)?$/.test(f)).sort().slice(0, -8).forEach(f => fs.unlinkSync("backups/" + f));
     console.log("saved", name, items.length, "items");
 })().catch(e => { console.error(e.message); process.exit(1); });
