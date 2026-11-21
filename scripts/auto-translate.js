@@ -21,7 +21,7 @@
         The very first run fills the list at once (REFILL=1 forces a refill any day).
      3. (own run, FILMS_ONLY=1, workflow auto-films.yml, any time of day; the quota-hour run above does series only)
         Every day up to 5 RANDOM well-rated films WITHOUT a Sinhala subtitle are added too (DAILY_FILMS=5, FILM_REFILL=1 forces it).
-   Stops by itself when Gemini says the quota is used up, at the quota reset, or after 3 failures in a row.  Safe to
+   Stops by itself when Gemini says the quota is used up, at the quota reset, or after 10 failures in a row (one bad episode never stops the run).  Safe to
    run again: finished episodes are skipped and the next run continues where this one stopped. */
 "use strict";
 
@@ -33,7 +33,12 @@ const KEY = process.env.ADMIN_KEY || "";
 const MAX_MS = (Number(process.env.MAX_MINUTES) || 60) * 60 * 1000;
 let started = Date.now();
 
-function log() { console.log.apply(console, ["[" + new Date().toISOString().slice(11, 19) + "]"].concat([].slice.call(arguments))); }
+const problems = [];   // reasons the run stopped early: they are e-mailed to the owner at the end
+function log() {
+    const msg = [].slice.call(arguments).join(" ");
+    if (/failures in a row: stopping|SubDL looks unavailable|quota is used up on every key and the reset is far away/.test(msg)) { problems.push(msg.trim()); }
+    console.log.apply(console, ["[" + new Date().toISOString().slice(11, 19) + "]"].concat([].slice.call(arguments)));
+}
 
 function pacificHour() {
     return Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hour12: false }).format(new Date())) % 24;
@@ -206,6 +211,10 @@ async function refillFilmsIfDue(n, meta) {
     // FILMS_ONLY=1: the separate daily FILMS run (own workflow, any time of day): only films, no quota-reset-hour rule
     const filmsOnly = process.env.FILMS_ONLY === "1";
     const manual = (process.env.GITHUB_EVENT_NAME === "workflow_dispatch" && process.env.FROM_CRON !== "1") || process.env.FORCE === "1" || filmsOnly;
+    // started by hand (GitHub "Run workflow" button or FORCE): tell the server so it lifts the Gemini quota reserve (same as Admin "Run now")
+    if ((process.env.GITHUB_EVENT_NAME === "workflow_dispatch" && process.env.FROM_CRON !== "1") || process.env.FORCE === "1") {
+        try { const r = await api("/api/stats?autoq=manual", { method: "POST", headers: AK() }); log(r.ok ? "Started by hand: no Gemini quota limit for this run." : "Could not lift the quota limit (" + r.status + ")."); } catch (e) { /* keep the normal limit */ }
+    }
     // Vercel's free cron can fire up to an hour early/late: if it came early (Pacific hour 22) just wait for hour 23.
     if (!manual && pacificHour() === 22) {
         log("Started early (Pacific hour 22): waiting for the last hour before the reset (23) ...");
@@ -263,6 +272,7 @@ async function refillFilmsIfDue(n, meta) {
     await page.goto(SITE + "/", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => typeof translateWithLibrary === "function" && typeof buildSRT === "function", null, { timeout: 60000 });
 
+    const FAIL_LIMIT = 10;   // a failed episode is skipped and the run goes on with the next one; only a long unbroken streak (Gemini really down) stops it
     let done = 0, failsInRow = 0;
     const noSub = {};      // series -> consecutive episodes without an English subtitle (= not aired / not on SubDL yet)
     const rechecked = new Set();   // titles already re-checked on the Sinhala sites in this run
@@ -333,7 +343,7 @@ async function refillFilmsIfDue(n, meta) {
                 }
                 log("Download still failing for " + label + ": leaving it for the next run.");
                 if ((dlGiveUp[id] = (dlGiveUp[id] || 0) + 1) >= 2) { closed.add(id); log("  2 episodes of " + job.t.title + " could not be downloaded: skipping this series for this run (not marked), next series."); }
-                if (++failsInRow >= 3) { log("3 failures in a row: stopping."); break stop; }
+                if (++failsInRow >= FAIL_LIMIT) { log(FAIL_LIMIT + " failures in a row: stopping."); break stop; }
                 continue;
             }
             if (/quota|limit|busy|exhaust|try again/i.test(msg)) {
@@ -358,9 +368,14 @@ async function refillFilmsIfDue(n, meta) {
                 i--;                                               // same episode again
                 continue;
             }
-            if (++failsInRow >= 3) { log("3 failures in a row: stopping."); break stop; }
+            if (++failsInRow >= FAIL_LIMIT) { log(FAIL_LIMIT + " failures in a row: stopping."); break stop; }
         }
     }
     await browser.close();
     log("Finished. Translated " + done + " this run.");
+    if (problems.length) {
+        try {
+            await post("/api/stats?alert=1", { subject: "SinSubz runner stopped early (" + done + " translated)", text: "The auto-translate run stopped early:\n\n- " + problems.join("\n- ") + "\n\nTranslated this run: " + done + "\nSee the Actions log on GitHub for details." });
+        } catch (e) { /* ignore */ }
+    }
 })().catch(e => { console.error(e); process.exit(1); });
