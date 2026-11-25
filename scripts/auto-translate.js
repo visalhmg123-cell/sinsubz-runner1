@@ -176,9 +176,9 @@ async function refillFilmsIfDue(n, meta) {
     const cand = await api("/api/stats?autoq=candidates&kind=movie", { headers: AK() });
     if (!cand.ok) { log("  film candidates failed: " + cand.status + " " + cand.text.slice(0, 120)); return false; }
     const picked = [];
-    // 4 recent releases + 1 older film (the server tags each candidate "new" / "old"); if one group runs short the other fills up
+    // recent releases only by default (the server tags each candidate "new" / "old"); if one group runs short the other fills up
     const all = ((cand.json && cand.json.items) || []);
-    const wantOld = n >= 2 ? 1 : 0, wantNew = n - wantOld;
+    const wantOld = process.env.FILM_OLD === "1" && n >= 2 ? 1 : 0, wantNew = n - wantOld;   // new releases only (FILM_OLD=1 brings back 1 older film a day)
     const noSinhala = async (c) => {
         let found = null;
         try { const r = await api("/api/sinhala-search?title=" + encodeURIComponent(c.title) + "&year=" + encodeURIComponent(c.year || "") + "&type=movie&_r=" + Date.now(), { headers: AK() }); if (r.ok && r.json) { found = !!r.json.found; } } catch (e) { /* unknown */ }
@@ -196,10 +196,10 @@ async function refillFilmsIfDue(n, meta) {
         }
     };
     await take(all.filter(c => c.group === "new"), wantNew, "new release");
-    await take(all.filter(c => c.group !== "new"), wantOld, "older film");
+    if (wantOld) { await take(all.filter(c => c.group !== "new"), wantOld, "older film"); }
     if (picked.length < n) { await take(all.filter(c => c.group === "new"), n, "new release"); }       // one group ran short: fill up
-    if (picked.length < n) { await take(all.filter(c => c.group !== "new"), n, "older film"); }
-    if (picked.length) { const r = await post("/api/stats?autoq=add", { items: picked }); log("  added " + ((r.json && r.json.added) || 0) + " films, list size " + ((r.json && r.json.size) || "?")); }
+    if (wantOld && picked.length < n) { await take(all.filter(c => c.group !== "new"), n, "older film"); }
+    if (picked.length) { const r = await post("/api/stats?autoq=add", { items: picked }); log("  added " + ((r.json && r.json.added) || 0) + " films" + ((r.json && r.json.pruned) ? " (" + r.json.pruned + " finished ones removed from the full list)" : "") + ", list size " + ((r.json && r.json.size) || "?")); }
     else { log("  no new film found today."); }
     await post("/api/stats?autoq=meta", { lastFilmRefill: true });
     return true;
@@ -255,7 +255,11 @@ async function refillFilmsIfDue(n, meta) {
     { const first = all.filter(j => !j.queued || j.t.type === "movie"), rest = all.filter(j => j.queued && j.t.type !== "movie"); all = first.concat(rest); }
     if (process.env.LIST_ONLY === "1") { log("LIST_ONLY: would work on " + [...new Set(all.map(j => j.t.title))].join(", ")); return; }
     // the daytime run does the series; the separate films run does the films
-    all = all.filter(j => filmsOnly ? j.t.type !== "tv" : j.t.type === "tv");
+    // "Run whole list" (admin): series AND films in one run (the films stay first)
+    let runAll = false;
+    try { const fr = await api("/api/stats?cron=runner&act=flag", { headers: AK() }); runAll = !!(fr.json && fr.json.all); } catch (e) { /* normal run */ }
+    if (runAll) { log("Run whole list: series and films together."); }
+    else { all = all.filter(j => filmsOnly ? j.t.type !== "tv" : j.t.type === "tv"); }
     const todo = all.filter(j => !have.has(j.t.imdb + "|" + j.season + "|" + j.episode));
     log("Queue: " + todo.length + " episodes / films to do in " + new Set(todo.map(j => j.t.imdb)).size + " titles, this run does at most " + maxRun + ".");
     if (!todo.length) { return; }
