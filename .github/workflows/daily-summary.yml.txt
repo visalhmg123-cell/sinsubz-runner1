@@ -1,0 +1,19 @@
+# Put this file in the RUNNER repo (visalhmg123-cell/sinsubz-runner1) as .github/workflows/daily-summary.yml
+# It asks the site to send the daily summary to your Telegram every night at 22:00 Sri Lanka time (16:30 UTC).
+# Uses the same ADMIN_KEY secret that the auto-translate workflow already uses.
+name: Daily summary
+on:
+  schedule:
+    - cron: "30 16 * * *"
+  workflow_dispatch: {}
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the site to send the summary
+        env:
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          SITE="${SITE_URL:-https://sinsubs.site}"
+          curl -fsS -X POST -H "x-admin-key: $ADMIN_KEY" "$SITE/api/stats?cron=runner&act=summary&auto=1"
